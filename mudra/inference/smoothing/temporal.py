@@ -1,0 +1,41 @@
+from __future__ import annotations
+
+from collections import deque
+from typing import Deque, List, Tuple
+
+import numpy as np
+
+
+class PredictionSmoother:
+    def __init__(self, alpha: float = 0.75, confirm_frames: int = 2, vote_window: int = 6):
+        self.alpha = alpha
+        self.confirm_frames = confirm_frames
+        self.vote_window = vote_window
+        self.ema_probs = None
+        self.recent_labels: Deque[int] = deque(maxlen=vote_window)
+        self.last_stable = -1
+        self.candidate = -1
+        self.candidate_count = 0
+
+    def update(self, probs: np.ndarray) -> Tuple[int, float]:
+        if self.ema_probs is None:
+            self.ema_probs = probs.copy()
+        else:
+            self.ema_probs = self.alpha * probs + (1 - self.alpha) * self.ema_probs
+
+        label = int(np.argmax(self.ema_probs))
+        confidence = float(self.ema_probs[label])
+        self.recent_labels.append(label)
+
+        if label == self.candidate:
+            self.candidate_count += 1
+        else:
+            self.candidate = label
+            self.candidate_count = 1
+
+        if self.candidate_count >= self.confirm_frames:
+            self.last_stable = self.candidate
+
+        # Use current EMA label directly — majority voting was causing
+        # stale predictions that locked onto wrong classes
+        return label, confidence
